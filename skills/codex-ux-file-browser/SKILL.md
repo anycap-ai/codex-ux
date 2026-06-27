@@ -21,7 +21,8 @@ The startup script prints one JSON object. Read `url`, then open it in the Codex
 
 Opening the page is part of this skill's startup task. Do not stop after printing or summarizing the URL.
 
-When the in-app Browser plugin is available, use it immediately: make the Browser visible, reuse the selected tab when present, otherwise create a new tab, then navigate to `url`. If browser control tools are not already exposed but tool discovery is available, search for the in-app Browser control tool and use it. Only fall back to giving the user the URL when in-app Browser control is unavailable or fails.
+Always use `browser:control-in-app-browser` to open `url` in the Codex in-app Browser. If that skill is not listed as available, use skill/tool discovery to find the in-app Browser control skill before deciding Browser control is unavailable. Make the Browser visible, reuse the selected tab when present, otherwise create a new tab, then navigate to `url`.
+
 
 The startup script resolves Python, runs `scripts/launch.py` with `--reuse --detach --json`, and exits after printing startup details. `--reuse` checks the current workspace registry under `~/.codex-ux/file-browser/workspaces/`, matches `workspaceRoot`, verifies `url + /api/meta`, and reuses the existing browser when it is healthy. `--detach` starts a background server only when no healthy server exists for that workspace. Do not trust registry files without the launcher's health check, because they can be stale after a previous process exits.
 
