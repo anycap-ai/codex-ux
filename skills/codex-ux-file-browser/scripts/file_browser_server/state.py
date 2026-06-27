@@ -22,8 +22,10 @@ from .utils import hash_file, is_relative_to, normalize_relative, utc_now
 
 
 class ReviewState:
-    def __init__(self, workspace_root: Path) -> None:
+    def __init__(self, workspace_root: Path, codex_host: str, codex_host_source: str = "default") -> None:
         self.workspace_root = workspace_root.resolve()
+        self.codex_host = codex_host
+        self.codex_host_source = codex_host_source
         root_key = workspace_key(self.workspace_root)
         self.session_dir = Path(tempfile.gettempdir()) / "codex-ux-file-browser" / root_key
         self.session_path = self.session_dir / "session.json"

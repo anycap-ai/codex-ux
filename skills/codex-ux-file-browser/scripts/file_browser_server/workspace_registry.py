@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .config import WORKSPACE_REGISTRY_DIR
+from .codex_host import CODEX_HOST_CLI
 from .protocol import APP_NAME, SCHEMA_WORKSPACE_BROWSER, workspace_key
 from .utils import utc_now
 
@@ -26,6 +27,8 @@ def build_registry_payload(
     payload = {
         "schemaVersion": SCHEMA_WORKSPACE_BROWSER,
         "app": APP_NAME,
+        "codexHost": getattr(state, "codex_host", CODEX_HOST_CLI),
+        "codexHostSource": getattr(state, "codex_host_source", "default"),
         "workspaceKey": workspace_key(state.workspace_root),
         "workspaceRoot": str(state.workspace_root),
         "sessionId": state.session.get("sessionId"),

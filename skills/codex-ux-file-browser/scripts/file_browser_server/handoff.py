@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from .codex_host import CODEX_HOST_CLI
 from .workspace_registry import write_registry_files
 from .protocol import APP_NAME, SCHEMA_HANDOFF, build_agent_guidance
 from .utils import utc_now
@@ -17,6 +18,8 @@ def build_handoff_payload(state: ReviewState, base_url: str) -> dict[str, Any]:
     return {
         "schemaVersion": SCHEMA_HANDOFF,
         "app": APP_NAME,
+        "codexHost": getattr(state, "codex_host", CODEX_HOST_CLI),
+        "codexHostSource": getattr(state, "codex_host_source", "default"),
         "workspaceRoot": str(state.workspace_root),
         "sessionId": state.session.get("sessionId"),
         "sessionPath": str(state.session_path),

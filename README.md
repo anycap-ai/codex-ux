@@ -8,7 +8,9 @@ The first surface is **Codex UX File Browser**: a read-only workspace browser fo
 
 ## Quick Start
 
-Codex UX is for **Codex Desktop App(Mac only)**. The easiest install path is to ask Codex directly:
+Codex UX works with the Codex desktop app and Codex CLI on macOS. In the desktop app, it opens in the Codex in-app Browser and can send notes back to the current thread. In Codex CLI, it opens your default browser and copies a handoff prompt that you paste back into the current CLI session.
+
+The easiest install path is to ask Codex directly:
 
 ```text
 Help me install this plugin https://github.com/anycap-ai/codex-ux
@@ -29,7 +31,7 @@ Start a new Codex thread, then run:
 $codex-ux-file-browser
 ```
 
-Codex opens the current File Browser surface for your workspace. Add notes, click `Send`, and Codex will handle the notes in the conversation.
+Codex opens the current File Browser surface for your workspace. Add notes, then click `Send` in the desktop app or `Copy` in CLI mode so Codex can handle the notes in the conversation.
 
 If your machine cannot run `git` reliably, install from a downloaded GitHub archive instead:
 

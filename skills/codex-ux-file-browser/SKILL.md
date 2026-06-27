@@ -9,26 +9,44 @@ Use this skill to run a local file browser that lets the user browse workspace f
 
 ## Start Review Browser
 
-Preferred fast path: run the bundled startup script from this skill directory. Let `SKILL_DIR` mean the absolute directory containing the loaded `SKILL.md`; substitute that path directly and do not search installed plugin caches when the skill path is already available. Do not paste Python resolver snippets into the terminal; the startup script owns Python discovery.
+Let `SKILL_DIR` mean the absolute directory containing the loaded `SKILL.md`; substitute that path directly and do not search installed plugin caches when the skill path is already available.
+
+### Codex App
+
+When running in the Codex desktop app, start the Python launcher and open the page from one Node REPL call. Use tool discovery only to expose the Node REPL `js` tool when it is not already callable. Do not run the shell launcher first, call `browser.documentation()`, read visibility capability documentation, take a DOM snapshot, take a screenshot, or inspect page contents on the happy path.
+
+```js
+const { launchAndOpenFileBrowser } = await import("SKILL_DIR/scripts/open-in-app-browser.mjs");
+nodeRepl.write(JSON.stringify(await launchAndOpenFileBrowser({
+  workspaceRoot: nodeRepl.cwd,
+}), null, 2));
+```
+
+The bundled opener script runs `scripts/start-file-browser.sh`, parses the launcher JSON, resolves the app-browser client module from the local Codex plugin cache, makes the Browser visible, reuses the selected tab when present, otherwise creates a new tab, then navigates to the launcher's exact `url`. It does not reload when the selected tab is already at `url`, because that can discard in-progress notes or selection state.
+
+If the script returns `opened: true`, startup is complete. If it returns `opened: false`, read `startup.codexHost` and use `startup.url` according to the host-specific rules below. If the script throws before returning startup JSON, report the blocker.
+
+### Codex CLI
+
+When running in Codex CLI, run the bundled startup script from this skill directory. Do not paste Python resolver snippets into the terminal; the startup script owns Python discovery.
 
 ```bash
 "$SKILL_DIR/scripts/start-file-browser.sh" "$PWD"
 ```
 
-The startup script prints one JSON object. Read `url`, then open it in the Codex in-app Browser yourself before responding. Read `snapshotUrl` when the user asks Codex to handle notes.
+The startup script detects whether it was launched from Codex CLI or the Codex desktop app by inspecting its parent process tree. Do not pass host overrides or probe Browser availability before launch. The script prints one JSON object. Read `codexHost` first, then choose the browser path below. Read `snapshotUrl` when the user asks Codex to handle notes.
 
-### Open In-App Browser
+When `codexHost` is `codex-cli`, the launcher opens `url` in the user's default browser automatically. If it does not open, give the user the printed `url`. Do not try to use the Codex in-app Browser in CLI host mode.
 
-Opening the page is part of this skill's startup task. Do not stop after printing or summarizing the URL.
+When the user clicks `Copy` in the browser, the handoff prompt is copied to the clipboard; ask the user to paste it back into the current Codex CLI session. Read the pasted handoff's `snapshotUrl` exactly as provided before handling notes.
 
-Always use `browser:control-in-app-browser` to open `url` in the Codex in-app Browser. If that skill is not listed as available, use skill/tool discovery to find the in-app Browser control skill before deciding Browser control is unavailable. Make the Browser visible, reuse the selected tab when present, otherwise create a new tab, then navigate to `url`.
-
-
-The startup script resolves Python, runs `scripts/launch.py` with `--reuse --detach --json`, and exits after printing startup details. `--reuse` checks the current workspace registry under `~/.codex-ux/file-browser/workspaces/`, matches `workspaceRoot`, verifies `url + /api/meta`, and reuses the existing browser when it is healthy. `--detach` starts a background server only when no healthy server exists for that workspace. Do not trust registry files without the launcher's health check, because they can be stale after a previous process exits.
+The startup script resolves Python, runs `scripts/launch.py` with `--reuse --detach --json`, and exits after printing startup details. `--reuse` checks the current workspace registry under `~/.codex-ux/file-browser/workspaces/`, matches `workspaceRoot` and `codexHost`, verifies `url + /api/meta`, and reuses the existing browser when it is healthy. `--detach` starts a background server only when no healthy server exists for that workspace and host. Do not trust registry files without the launcher's health check, because they can be stale after a previous process exits.
 
 The launcher returns:
 
-- `url`: open this in the in-app browser.
+- `url`: open this in the appropriate browser for the host.
+- `codexHost`: `codex-app` or `codex-cli`.
+- `codexHostSource`: usually `process-tree`; `default` means the launcher could not identify the parent process and used the safe CLI fallback.
 - `snapshotUrl`: GET this endpoint when the user asks Codex to read notes.
 - `sessionPath`: temp JSON path where notes are stored.
 - `registryPath`: stable handoff JSON path for the current workspace.
@@ -49,12 +67,12 @@ Use a fixed port only when the user explicitly asks for one:
 
 ## Browser Workflow
 
-1. Open the printed `URL` in the Codex in-app Browser yourself.
+1. Open the printed `URL` according to `codexHost`: in `codex-app`, use the Codex in-app Browser; in `codex-cli`, rely on the launcher-opened default browser or give the user the printed URL.
 2. Let the user add notes:
    - Text/code/Markdown: select a range and write a note in the floating composer.
    - Images: choose Area, Pin, or Draw, mark the image, then write a note.
    - Use the command palette or file search to move quickly across files.
-3. Preferred handoff: the user clicks `Send` in the browser. Read the launcher-provided `registryPath`, match `workspaceRoot` to the current workspace, then read `handoff.snapshotUrl` exactly as provided. Always inspect the snapshot `intents` array before responding; do not answer from the chat message or handoff prompt alone. Handoff snapshot URLs may include `?intents=open` and intentionally expose only open intents, not resolved intents.
+3. Preferred handoff: the user clicks `Send` or `Copy` in the browser. In Codex app host mode, `Send` may deliver the prompt to the current Codex app thread. In Codex CLI host mode, `Copy` copies the prompt and the user must paste it into the current CLI session. Read the launcher-provided `registryPath` or the pasted handoff, match `workspaceRoot` to the current workspace, then read `handoff.snapshotUrl` exactly as provided. Always inspect the snapshot `intents` array before responding; do not answer from the chat message or handoff prompt alone. Handoff snapshot URLs may include `?intents=open` and intentionally expose only open intents, not resolved intents.
 4. Fallback handoff: when the user asks to handle notes manually, read the printed `Snapshot` endpoint:
 
 ```bash
@@ -96,7 +114,7 @@ The local Python server serves the packaged frontend from `assets/file-browser/d
 - `GET /snapshot.json`
 - `GET /snapshot.json?intents=open`
 
-`POST /api/handoff/send` writes the current workspace registry, stores the latest handoff JSON in the temp session directory, and attempts to open the current Codex thread, set the prompt directly in the Codex composer through macOS Accessibility, and press Enter. It works best with `CODEX_THREAD_ID` in the launcher environment. If automation does not send, read the workspace registry or the returned `snapshotUrl` directly; do not retry older handoff modes.
+`POST /api/handoff/send` writes the current workspace registry and stores the latest handoff JSON in the temp session directory. When `codexHost` is `codex-app`, it attempts to open the current Codex thread, set the prompt directly in the Codex composer through macOS Accessibility, and press Enter. It works best with `CODEX_THREAD_ID` in the launcher environment. When `codexHost` is `codex-cli`, desktop automation is skipped by design and the browser copies the prompt for manual paste into the CLI. If automation does not send, read the workspace registry or the returned `snapshotUrl` directly; do not retry older handoff modes.
 
 `GET /snapshot.json?intents=open` returns a handoff-focused snapshot whose `intents` and `files` include only open intents. Use the exact handoff URL unless the user explicitly asks about resolved intents.
 

@@ -10,6 +10,7 @@ Read this together with [AgentUX Core](agentux-core.md).
 
 The File Browser exposes:
 
+- `GET /api/meta`
 - `GET /snapshot.json`
 - `GET /snapshot.json?intents=open`
 - `GET /api/session`
@@ -28,6 +29,24 @@ The browser also exposes:
 
 The app currently does not implement `agentux.view.v1`, events, or agent layer.
 Those capabilities are declared as disabled in the snapshot surface object.
+
+## Host Context
+
+The launcher detects its Codex host from the parent process tree and reports it
+as `codexHost`:
+
+- `codex-app`: launched from the Codex desktop app. Handoff may use macOS
+  Accessibility automation to send the prompt back to the active Codex app
+  thread.
+- `codex-cli`: launched from Codex CLI. Handoff never controls the desktop app;
+  it creates the same handoff payload and the browser copies the prompt for the
+  user to paste into the CLI session.
+
+`GET /api/meta`, handoff responses, and workspace registry files include
+`codexHost`. Startup, meta, and workspace registry payloads also include
+`codexHostSource`; `process-tree` means the launcher identified the host from
+an ancestor process, and `default` means it used the safe CLI fallback. Server
+reuse must match both `workspaceRoot` and `codexHost`.
 
 ## Snapshot Shape
 

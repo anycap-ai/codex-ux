@@ -42,6 +42,8 @@ class ReviewHandler(SimpleHTTPRequestHandler):
                     {
                         "app": APP_NAME,
                         "schemaVersion": SCHEMA_SNAPSHOT,
+                        "codexHost": self.state.codex_host,
+                        "codexHostSource": self.state.codex_host_source,
                         "surface": build_surface(self.state.workspace_root),
                         "workspaceRoot": str(self.state.workspace_root),
                         "sessionPath": str(self.state.session_path),
@@ -120,7 +122,7 @@ class ReviewHandler(SimpleHTTPRequestHandler):
             self.read_json_body()
             handoff = build_handoff_payload(self.state, self.base_url)
             write_handoff_files(self.state, handoff)
-            automation = trigger_codex_automation(handoff["prompt"])
+            automation = trigger_codex_automation(handoff["prompt"], self.state.codex_host)
             response = {
                 **handoff,
                 "sent": automation["ok"],
@@ -262,8 +264,14 @@ def bind_with_fallback(host: str, preferred_port: int, handler: type[ReviewHandl
     raise RuntimeError(f"Could not bind a local port starting at {preferred_port}")
 
 
-def create_server(workspace_root: Path, host: str, port: int) -> tuple[ThreadingHTTPServer, str, ReviewState]:
-    state = ReviewState(workspace_root)
+def create_server(
+    workspace_root: Path,
+    host: str,
+    port: int,
+    codex_host: str,
+    codex_host_source: str,
+) -> tuple[ThreadingHTTPServer, str, ReviewState]:
+    state = ReviewState(workspace_root, codex_host, codex_host_source)
     ReviewHandler.state = state
 
     server = bind_with_fallback(host, port, ReviewHandler)

@@ -6,12 +6,15 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
+import webbrowser
 from pathlib import Path
 from typing import Any, Iterator
 from urllib.error import URLError
 from urllib.request import urlopen
 
+from .codex_host import CODEX_HOST_CLI, detect_codex_host
 from .workspace_registry import workspace_registry_path
 from .config import WORKSPACE_LOCK_DIR
 from .http_app import create_server
@@ -26,6 +29,9 @@ except ImportError:  # pragma: no cover - fcntl is unavailable on Windows.
 
 def main() -> None:
     args = parse_args()
+    codex_host = detect_codex_host()
+    open_browser = args.open_browser or codex_host.host == CODEX_HOST_CLI
+
     workspace_root = Path(args.workspace).expanduser().resolve()
     if not workspace_root.is_dir():
         raise SystemExit(f"Workspace root is not a directory: {workspace_root}")
@@ -33,23 +39,34 @@ def main() -> None:
     if args.detach:
         with workspace_launch_lock(workspace_root):
             if args.reuse:
-                reusable = find_live_registry(workspace_root)
+                reusable = find_live_registry(workspace_root, codex_host.host)
                 if reusable:
+                    open_startup_url(reusable, open_browser)
                     output_startup_payload(reusable, args.json)
                     return
 
-            payload = start_detached(workspace_root, args.host, args.port)
+            payload = start_detached(workspace_root, args.host, args.port, codex_host.host)
+            open_startup_url(payload, open_browser)
             output_startup_payload(payload, args.json)
             return
 
     if args.reuse:
         with workspace_launch_lock(workspace_root):
-            reusable = find_live_registry(workspace_root)
+            reusable = find_live_registry(workspace_root, codex_host.host)
         if reusable:
+            open_startup_url(reusable, open_browser)
             output_startup_payload(reusable, args.json)
             return
 
-    run_foreground(workspace_root, args.host, args.port, args.json)
+    run_foreground(
+        workspace_root,
+        args.host,
+        args.port,
+        args.json,
+        codex_host.host,
+        codex_host.source,
+        open_browser,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,6 +77,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reuse", action="store_true", help="Reuse a healthy active browser for this workspace.")
     parser.add_argument("--detach", action="store_true", help="Start the server in the background and exit.")
     parser.add_argument("--json", action="store_true", help="Print one JSON object with startup details.")
+    parser.add_argument("--open", dest="open_browser", action="store_true", help="Open the browser URL after launch.")
     return parser.parse_args()
 
 
@@ -77,10 +95,25 @@ def workspace_launch_lock(workspace_root: Path) -> Iterator[None]:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
-def run_foreground(workspace_root: Path, host: str, port: int, json_output: bool) -> None:
-    server, base_url, state = create_server(workspace_root, host, port)
+def run_foreground(
+    workspace_root: Path,
+    host: str,
+    port: int,
+    json_output: bool,
+    codex_host: str,
+    codex_host_source: str,
+    open_browser: bool,
+) -> None:
+    server, base_url, state = create_server(
+        workspace_root,
+        host,
+        port,
+        codex_host,
+        codex_host_source,
+    )
     payload = build_startup_payload(state, base_url, reused=False, detached=False)
     output_startup_payload(payload, json_output)
+    open_startup_url(payload, open_browser)
 
     try:
         server.serve_forever()
@@ -90,7 +123,7 @@ def run_foreground(workspace_root: Path, host: str, port: int, json_output: bool
         server.server_close()
 
 
-def start_detached(workspace_root: Path, host: str, port: int) -> dict[str, Any]:
+def start_detached(workspace_root: Path, host: str, port: int, codex_host: str) -> dict[str, Any]:
     log_path = detached_log_path(workspace_root)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = log_path.open("a", encoding="utf-8")
@@ -105,16 +138,21 @@ def start_detached(workspace_root: Path, host: str, port: int) -> dict[str, Any]
         str(port),
         "--json",
     ]
+    popen_options: dict[str, Any] = {}
+    if os.name == "nt":
+        popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    else:
+        popen_options["start_new_session"] = True
     process = subprocess.Popen(
         command,
         stdout=log_file,
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
         text=True,
-        start_new_session=True,
+        **popen_options,
     )
     log_file.close()
-    payload = wait_for_detached_server(workspace_root, process, log_path)
+    payload = wait_for_detached_server(workspace_root, process, log_path, codex_host)
     payload["detached"] = True
     payload["reused"] = False
     payload["pid"] = process.pid
@@ -126,6 +164,7 @@ def wait_for_detached_server(
     workspace_root: Path,
     process: subprocess.Popen[str],
     log_path: Path,
+    codex_host: str,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
@@ -133,16 +172,16 @@ def wait_for_detached_server(
             raise SystemExit(f"Detached file browser exited early with code {process.returncode}. Log: {log_path}")
         payload = read_workspace_registry(workspace_root)
         if payload and payload.get("pid") == process.pid:
-            live = live_registry_payload(workspace_root, payload)
+            live = live_registry_payload(workspace_root, payload, codex_host)
             if live:
                 return live
         time.sleep(0.1)
     raise SystemExit(f"Timed out waiting for detached file browser. Log: {log_path}")
 
 
-def find_live_registry(workspace_root: Path) -> dict[str, Any] | None:
+def find_live_registry(workspace_root: Path, codex_host: str) -> dict[str, Any] | None:
     payload = read_workspace_registry(workspace_root)
-    live = live_registry_payload(workspace_root, payload) if payload else None
+    live = live_registry_payload(workspace_root, payload, codex_host) if payload else None
     if not live:
         return None
     live["reused"] = True
@@ -150,8 +189,10 @@ def find_live_registry(workspace_root: Path) -> dict[str, Any] | None:
     return live
 
 
-def live_registry_payload(workspace_root: Path, payload: dict[str, Any]) -> dict[str, Any] | None:
+def live_registry_payload(workspace_root: Path, payload: dict[str, Any], codex_host: str) -> dict[str, Any] | None:
     if payload.get("app") != APP_NAME:
+        return None
+    if payload.get("codexHost") != codex_host:
         return None
     if Path(str(payload.get("workspaceRoot", ""))).resolve() != workspace_root:
         return None
@@ -163,6 +204,8 @@ def live_registry_payload(workspace_root: Path, payload: dict[str, Any]) -> dict
     if not isinstance(meta, dict):
         return None
     if meta.get("app") != APP_NAME:
+        return None
+    if meta.get("codexHost") != codex_host:
         return None
     if Path(str(meta.get("workspaceRoot", ""))).resolve() != workspace_root:
         return None
@@ -205,6 +248,8 @@ def build_startup_payload(state, base_url: str, reused: bool, detached: bool) ->
     return {
         "schemaVersion": SCHEMA_STARTUP,
         "app": APP_NAME,
+        "codexHost": state.codex_host,
+        "codexHostSource": state.codex_host_source,
         "workspaceRoot": str(state.workspace_root),
         "sessionId": state.session.get("sessionId"),
         "sessionPath": str(state.session_path),
@@ -225,6 +270,7 @@ def output_startup_payload(payload: dict[str, Any], json_output: bool) -> None:
         return
 
     print("Codex UX File Browser", flush=True)
+    print(f"Codex host: {payload['codexHost']} ({payload.get('codexHostSource', 'unknown')})", flush=True)
     print(f"Workspace: {payload['workspaceRoot']}", flush=True)
     print(f"URL: {payload['url']}", flush=True)
     print(f"Snapshot: {payload['snapshotUrl']}", flush=True)
@@ -239,4 +285,17 @@ def output_startup_payload(payload: dict[str, Any], json_output: bool) -> None:
 
 def detached_log_path(workspace_root: Path) -> Path:
     root_key = workspace_key(workspace_root.resolve())
-    return Path(os.getenv("TMPDIR", "/tmp")) / "codex-ux-file-browser" / f"{root_key}.log"
+    return Path(tempfile.gettempdir()) / "codex-ux-file-browser" / f"{root_key}.log"
+
+
+def open_startup_url(payload: dict[str, Any], enabled: bool) -> None:
+    if not enabled:
+        return
+    url = str(payload.get("url") or "").strip()
+    if not url:
+        return
+    try:
+        if not webbrowser.open(url):
+            print(f"Could not open browser automatically: {url}", file=sys.stderr, flush=True)
+    except Exception as error:
+        print(f"Could not open browser automatically: {error}", file=sys.stderr, flush=True)
