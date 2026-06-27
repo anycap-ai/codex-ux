@@ -1,0 +1,229 @@
+# AgentUX File Browser Binding
+
+This document binds the generic AgentUX core model to the File Browser app.
+The user-facing product language stays simple: users add notes. The protocol
+language is stricter: each note is an `intent` attached to a file `target`.
+
+Read this together with [AgentUX Core](agentux-core.md).
+
+## Runtime Contract
+
+The File Browser exposes:
+
+- `GET /snapshot.json`
+- `GET /snapshot.json?intents=open`
+- `GET /api/session`
+- `PUT /api/session`
+- `POST /api/intents/resolve`
+- `POST /api/handoff/send`
+
+The browser also exposes:
+
+- `window.AgentUX.getSnapshot()`
+- `window.AgentUX.getIntents()`
+- `window.AgentUX.requestHandoff()`
+- `window.AgentUX.resolveIntents(["intent_..."])`
+- `document.documentElement.dataset.agentuxSnapshotEndpoint`
+- `<link rel="agentux-snapshot" href="/snapshot.json">`
+
+The app currently does not implement `agentux.view.v1`, events, or agent layer.
+Those capabilities are declared as disabled in the snapshot surface object.
+
+## Snapshot Shape
+
+```json
+{
+  "schemaVersion": "agentux.snapshot.v1",
+  "surface": {
+    "id": "codex-ux-file-browser",
+    "kind": "workspace-review",
+    "title": "File Browser",
+    "workspaceRoot": "/absolute/workspace/root",
+    "capabilities": {
+      "view": false,
+      "layer": false,
+      "events": false,
+      "hostActions": []
+    }
+  },
+  "workspaceRoot": "/absolute/workspace/root",
+  "sessionId": "session_...",
+  "createdAt": "2026-06-27T00:00:00.000Z",
+  "intentPurpose": "general-agent-context",
+  "openIntentCount": 0,
+  "viewRevision": 0,
+  "currentTarget": null,
+  "agentGuidance": [],
+  "files": [],
+  "intents": []
+}
+```
+
+Snapshots intentionally do not include full file contents. Agents should read
+original files from the workspace only when needed to answer safely or make an
+edit.
+
+`GET /snapshot.json?intents=open` returns a handoff-focused snapshot whose
+`intents` and `files` include only open intents. `Send` uses this filtered
+URL so agents do not see resolved intents during normal handoff handling.
+
+## File Target
+
+All current File Browser targets use `workspace-path` locators.
+
+```json
+{
+  "kind": "file",
+  "locator": {
+    "type": "workspace-path",
+    "path": "docs/spec.md",
+    "absolutePath": "/absolute/workspace/root/docs/spec.md"
+  },
+  "anchor": {
+    "type": "text-range",
+    "space": "source-text",
+    "startLine": 42,
+    "endLine": 45,
+    "startColumn": 1,
+    "endColumn": 18,
+    "selectedText": "...",
+    "contextBefore": "...",
+    "contextAfter": "...",
+    "anchorHash": "sha256:..."
+  }
+}
+```
+
+Canonical AgentUX anchors include `space`. Current File Browser snapshots omit
+`space` until view support lands; agents should infer it from the anchor type in
+this binding.
+
+## Text Intent
+
+```json
+{
+  "id": "intent_...",
+  "kind": "intent",
+  "purpose": "note",
+  "target": {
+    "kind": "file",
+    "locator": {
+      "type": "workspace-path",
+      "path": "docs/spec.md",
+      "absolutePath": "/absolute/workspace/root/docs/spec.md"
+    },
+    "anchor": {
+      "type": "text-range",
+      "startLine": 42,
+      "endLine": 45,
+      "startColumn": 1,
+      "endColumn": 18,
+      "selectedText": "...",
+      "contextBefore": "...",
+      "contextAfter": "...",
+      "anchorHash": "sha256:..."
+    }
+  },
+  "body": "Rewrite this section with less jargon.",
+  "status": "open",
+  "createdAt": "...",
+  "updatedAt": "..."
+}
+```
+
+Line and column values are the primary locator. Use selected text and context as
+fallback when nearby text no longer matches or a risky edit needs extra
+confidence. `anchorHash` is a protocol/debug field; agents should not recompute
+it during normal intent handling.
+
+## Image Intent
+
+```json
+{
+  "id": "intent_...",
+  "kind": "intent",
+  "purpose": "note",
+  "target": {
+    "kind": "file",
+    "locator": {
+      "type": "workspace-path",
+      "path": "assets/example.png",
+      "absolutePath": "/absolute/workspace/root/assets/example.png"
+    },
+    "anchor": {
+      "type": "image-rect",
+      "imageWidth": 1600,
+      "imageHeight": 900,
+      "x": 240,
+      "y": 180,
+      "width": 320,
+      "height": 180
+    }
+  },
+  "body": "Make this region read as the primary action.",
+  "status": "open",
+  "createdAt": "...",
+  "updatedAt": "..."
+}
+```
+
+Image coordinates are original image pixels, never browser screen coordinates.
+Supported image anchors are `image-rect`, `image-point`, and `image-path`.
+
+## HTML Intent
+
+Rendered HTML intents use browser document CSS pixels. They are meant for visual
+or copy feedback on the rendered page, while source-mode text ranges continue
+to use `text-range`.
+
+```json
+{
+  "id": "intent_...",
+  "kind": "intent",
+  "purpose": "note",
+  "target": {
+    "kind": "file",
+    "locator": {
+      "type": "workspace-path",
+      "path": "public/index.html",
+      "absolutePath": "/absolute/workspace/root/public/index.html"
+    },
+    "anchor": {
+      "type": "html-text",
+      "documentWidth": 1280,
+      "documentHeight": 720,
+      "selectedText": "Start reviewing",
+      "contextBefore": "...",
+      "contextAfter": "...",
+      "startPath": [1, 0, 2],
+      "endPath": [1, 0, 2],
+      "startOffset": 0,
+      "endOffset": 15,
+      "rects": [{ "x": 320, "y": 180, "width": 120, "height": 22 }]
+    }
+  },
+  "body": "Make this call to action more specific.",
+  "status": "open",
+  "createdAt": "...",
+  "updatedAt": "..."
+}
+```
+
+`html-rect` anchors use the same document coordinate space with `x`, `y`,
+`width`, and `height`. Agents should treat DOM paths and coordinates as fast
+hints and validate against the current file before editing.
+
+## Agent Rules
+
+- Read the provided AgentUX snapshot and inspect its `intents` array before responding.
+- Treat only `status: "open"` as requiring an agent response.
+- Triage intent body before reading files. If the snapshot has enough context to answer, respond without extra file reads.
+- Group intents by file and batch file reads.
+- Read `body` as the user's actual intent. It may ask for an answer, provide context, point out a concern, approve something, mark a location, or request an edit.
+- Blank note text is normalized to `body: "mark"`. Treat that as a lightweight location marker.
+- Use anchors as fast locators. For text anchors, start from line/column and nearby text.
+- Edit files only when the intent asks for it or clearly implies it.
+- After fully handling open intents, resolve their ids in one `POST /api/intents/resolve` when possible, with body `{ "ids": ["intent_..."] }`.
+- Resolve only intents you actually handled. Leave ambiguous, unsafe, or still-pending intents open and report why.
+- Do not ask the user to restate context already present in the snapshot.
+- Make the final reply easy to map back to the user's notes in the File Browser.

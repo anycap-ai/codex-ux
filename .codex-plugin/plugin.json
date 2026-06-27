@@ -1,0 +1,38 @@
+{
+  "name": "codex-ux",
+  "version": "0.1.0",
+  "description": "Codex UX surfaces and hooks for reviewing local workspace files with AgentUX notes.",
+  "author": {
+    "name": "AnyCap AI",
+    "url": "https://github.com/anycap-ai"
+  },
+  "homepage": "https://github.com/anycap-ai/codex-ux",
+  "repository": "https://github.com/anycap-ai/codex-ux",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "agentux",
+    "file-browser",
+    "review",
+    "hooks"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex UX",
+    "shortDescription": "Review local files with AgentUX notes",
+    "longDescription": "Launch a local read-only File Browser from Codex, collect precise anchored notes, and hand those notes back to Codex as AgentUX intents.",
+    "developerName": "AnyCap AI",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/anycap-ai/codex-ux",
+    "brandColor": "#2563EB",
+    "defaultPrompt": [
+      "Use $codex-ux-file-browser to review this workspace"
+    ],
+    "screenshots": []
+  }
+}

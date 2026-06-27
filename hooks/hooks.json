@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import json, runpy, subprocess\nfrom pathlib import Path\n\nHOOK = Path(\"hooks/codex-ux-file-browser-autostart/hook.py\")\n\ndef repo_root():\n    result = subprocess.run(\n        [\"git\", \"rev-parse\", \"--show-toplevel\"],\n        capture_output=True,\n        text=True,\n        timeout=2,\n        check=False,\n    )\n    if result.returncode == 0 and result.stdout.strip():\n        return Path(result.stdout.strip()).resolve()\n    return Path.cwd().resolve()\n\ndef plugin_root_for(path):\n    for parent in path.parents:\n        manifest = parent / \".codex-plugin\" / \"plugin.json\"\n        if not manifest.is_file():\n            continue\n        try:\n            payload = json.loads(manifest.read_text(encoding=\"utf-8\"))\n        except (OSError, json.JSONDecodeError):\n            return None\n        if payload.get(\"name\") == \"codex-ux\":\n            return parent\n        return None\n    return None\n\ndef installed_plugin_hooks():\n    roots = [\n        Path.home() / \".codex\" / \"plugins\" / \"codex-ux\",\n        Path.home() / \".codex\" / \"plugins\" / \"cache\",\n    ]\n    hooks = []\n    for root in roots:\n        if not root.exists():\n            continue\n        for path in root.glob(\"**/hooks/codex-ux-file-browser-autostart/hook.py\"):\n            if plugin_root_for(path) is not None:\n                hooks.append(path)\n    return sorted(hooks, key=lambda path: path.stat().st_mtime, reverse=True)\n\nroot = repo_root()\ncandidates = [\n    root / \".codex\" / \"codex-ux-file-browser-autostart\" / \"hook.py\",\n    root / \"plugins\" / \"codex-ux\" / HOOK,\n    *installed_plugin_hooks(),\n]\nfor candidate in candidates:\n    if candidate.is_file():\n        runpy.run_path(str(candidate), run_name=\"__main__\")\n        raise SystemExit(0)\n\nprint(json.dumps({\"continue\": True, \"suppressOutput\": True}))'",
+            "timeout": 30,
+            "statusMessage": "Checking Codex UX File Browser trigger"
+          }
+        ]
+      }
+    ]
+  }
+}
