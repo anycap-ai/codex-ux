@@ -8,13 +8,13 @@ The first surface is **Codex UX File Browser**: a read-only workspace browser fo
 
 ## Quick Start
 
-Codex UX is for **Codex app**. The easiest install path is to ask Codex directly:
+Codex UX is for **Codex Desktop App(Mac only)**. The easiest install path is to ask Codex directly:
 
 ```text
 help me install https://github.com/anycap-ai/codex-ux
 ```
 
-You can also install it from the Codex app UI: open **Plugins**, add the `anycap-ai/codex-ux` marketplace, then install **Codex UX**.
+You can also install it from the Codex app UI: open `Plugins` -> `Add marketplace`, then install `Codex UX`.
 
 If you prefer the CLI:
 
