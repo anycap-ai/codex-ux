@@ -31,8 +31,6 @@ $codex-ux-file-browser
 
 Codex opens the current File Browser surface for your workspace. Add notes, click `Send`, and Codex will handle the notes in the conversation.
 
-If Codex asks you to review the hook in `/hooks`, trust it before using the autostart flow. The hook only reacts when your prompt explicitly mentions `$codex-ux-file-browser` or `/codex-ux-file-browser`.
-
 If your machine cannot run `git` reliably, install from a downloaded GitHub archive instead:
 
 ```bash
@@ -82,7 +80,6 @@ The plugin includes:
 - `codex-ux-file-browser`: the skill Codex uses to launch and operate the File Browser.
 - A local Python server for serving the read-only browser and snapshot API.
 - Built frontend assets for the File Browser UI.
-- A Codex hook that starts the browser automatically when you invoke the skill.
 
 Everything runs locally. The browser serves files from the workspace you are reviewing and skips common large, generated, and secret-bearing paths.
 

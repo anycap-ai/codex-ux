@@ -9,57 +9,21 @@ Use this skill to run a local file browser that lets the user browse workspace f
 
 ## Start Review Browser
 
-If the current turn includes hook context saying "Codex UX File Browser autostart hook succeeded", the local review browser service is already running and the URL is already open in the Codex in-app browser. In that case, do not run the launcher again and do not open or navigate the in-app browser again for the startup step. Reuse the hook-provided `url`, `snapshotUrl`, `workspaceRoot`, `registryPath`, and `sessionPath`, then continue with the Browser Workflow from the point where the page is already open.
-
-If hook context says the service started but browser automation was not confirmed, reuse the hook-provided `url` and `snapshotUrl`; do not run the launcher again unless `url + /api/meta` fails. Open or navigate the in-app browser only if needed.
-
-Preferred fast path: resolve a working Python runtime and the installed skill directory, then run the launcher from the workspace root the user wants to review. Do not assume `~/.codex/skills/codex-ux-file-browser` exists; plugin installs may place the skill under `~/.codex/plugins/cache/...`.
+Preferred fast path: run the bundled startup script from this skill directory. Let `SKILL_DIR` mean the absolute directory containing the loaded `SKILL.md`; substitute that path directly and do not search installed plugin caches when the skill path is already available. Do not paste Python resolver snippets into the terminal; the startup script owns Python discovery.
 
 ```bash
-CODEX_UX_PYTHON="$(
-  for candidate in "${CODEX_UX_PYTHON:-}" \
-    "$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3" \
-    /opt/homebrew/bin/python3 \
-    /usr/local/bin/python3 \
-    /usr/bin/python3 \
-    python3
-  do
-    [ -n "$candidate" ] || continue
-    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys' >/dev/null 2>&1; then
-      printf "%s\n" "$candidate"
-      break
-    fi
-  done
-)"
-test -n "$CODEX_UX_PYTHON"
-CODEX_UX_SKILL_DIR="$("$CODEX_UX_PYTHON" - <<'PY'
-from pathlib import Path
-
-home = Path.home()
-candidates = []
-for root in [Path.cwd(), *Path.cwd().parents]:
-    candidates.append(root / "skills/codex-ux-file-browser")
-    candidates.append(root / "plugins/codex-ux/skills/codex-ux-file-browser")
-candidates.append(home / ".codex/skills/codex-ux-file-browser")
-candidates.append(home / ".codex/plugins/codex-ux/skills/codex-ux-file-browser")
-cache = home / ".codex/plugins/cache"
-if cache.exists():
-    candidates.extend(path.parent for path in cache.glob("**/skills/codex-ux-file-browser/SKILL.md"))
-valid = [path for path in candidates if (path / "scripts/launch.py").is_file()]
-if not valid:
-    raise SystemExit("Could not find codex-ux-file-browser skill directory")
-valid.sort(key=lambda path: (path / "scripts/launch.py").stat().st_mtime, reverse=True)
-print(valid[0])
-PY
-)"
-"$CODEX_UX_PYTHON" "$CODEX_UX_SKILL_DIR/scripts/launch.py" "$PWD" --reuse --detach --json
+"$SKILL_DIR/scripts/start-file-browser.sh" "$PWD"
 ```
 
-The launcher prints one JSON object. Read `url` and open it in the in-app browser. Read `snapshotUrl` when the user asks Codex to handle notes.
+The startup script prints one JSON object. Read `url`, then open it in the Codex in-app Browser yourself before responding. Read `snapshotUrl` when the user asks Codex to handle notes.
 
-When the in-app Browser plugin is available, immediately open `url` there: make the Browser visible, reuse the selected tab when present, otherwise create a new tab, then navigate to `url`. Do not stop after printing the URL.
+### Open In-App Browser
 
-`--reuse` checks the current workspace registry under `~/.codex-ux/file-browser/workspaces/`, matches `workspaceRoot`, verifies `url + /api/meta`, and reuses the existing browser when it is healthy. `--detach` starts a background server only when no healthy server exists for that workspace. Do not trust registry files without the launcher's health check, because they can be stale after a previous process exits.
+Opening the page is part of this skill's startup task. Do not stop after printing or summarizing the URL.
+
+When the in-app Browser plugin is available, use it immediately: make the Browser visible, reuse the selected tab when present, otherwise create a new tab, then navigate to `url`. If browser control tools are not already exposed but tool discovery is available, search for the in-app Browser control tool and use it. Only fall back to giving the user the URL when in-app Browser control is unavailable or fails.
+
+The startup script resolves Python, runs `scripts/launch.py` with `--reuse --detach --json`, and exits after printing startup details. `--reuse` checks the current workspace registry under `~/.codex-ux/file-browser/workspaces/`, matches `workspaceRoot`, verifies `url + /api/meta`, and reuses the existing browser when it is healthy. `--detach` starts a background server only when no healthy server exists for that workspace. Do not trust registry files without the launcher's health check, because they can be stale after a previous process exits.
 
 The launcher returns:
 
@@ -73,23 +37,23 @@ The launcher binds to a random available port by default. Do not assume `8787` o
 Use foreground mode only when the user explicitly wants to keep the server attached to the terminal:
 
 ```bash
-"$CODEX_UX_PYTHON" "$CODEX_UX_SKILL_DIR/scripts/launch.py" "$PWD"
+"$SKILL_DIR/scripts/start-file-browser.sh" "$PWD" --foreground
 ```
 
 Use a fixed port only when the user explicitly asks for one:
 
 ```bash
-"$CODEX_UX_PYTHON" "$CODEX_UX_SKILL_DIR/scripts/launch.py" "$PWD" --reuse --detach --json --port 8790
+"$SKILL_DIR/scripts/start-file-browser.sh" "$PWD" --port 8790
 ```
 
 ## Browser Workflow
 
-1. Open the printed `URL` in the in-app browser.
+1. Open the printed `URL` in the Codex in-app Browser yourself.
 2. Let the user add notes:
    - Text/code/Markdown: select a range and write a note in the floating composer.
    - Images: choose Area, Pin, or Draw, mark the image, then write a note.
    - Use the command palette or file search to move quickly across files.
-3. Preferred handoff: the user clicks `Send` in the browser. Read the launcher or hook-provided `registryPath`, match `workspaceRoot` to the current workspace, then read `handoff.snapshotUrl` exactly as provided. Always inspect the snapshot `intents` array before responding; do not answer from the chat message or handoff prompt alone. Handoff snapshot URLs may include `?intents=open` and intentionally expose only open intents, not resolved intents.
+3. Preferred handoff: the user clicks `Send` in the browser. Read the launcher-provided `registryPath`, match `workspaceRoot` to the current workspace, then read `handoff.snapshotUrl` exactly as provided. Always inspect the snapshot `intents` array before responding; do not answer from the chat message or handoff prompt alone. Handoff snapshot URLs may include `?intents=open` and intentionally expose only open intents, not resolved intents.
 4. Fallback handoff: when the user asks to handle notes manually, read the printed `Snapshot` endpoint:
 
 ```bash

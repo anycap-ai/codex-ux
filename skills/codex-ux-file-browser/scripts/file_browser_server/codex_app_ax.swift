@@ -126,73 +126,193 @@ func pressMenuItem(_ root: AXUIElement, title: String) -> AXError {
 }
 
 func findTextField(_ element: AXUIElement) -> AXUIElement? {
-    return firstDescendant(element) { candidate in
-        str(attr(candidate, kAXRoleAttribute as String)) == "AXTextField"
-    }
+	return firstDescendant(element) { candidate in
+		str(attr(candidate, kAXRoleAttribute as String)) == "AXTextField"
+	}
+}
+
+struct BrowserState {
+	let addressField: AXUIElement?
+	let addressValue: String
+	let webAreaMatchesExpectedURL: Bool
+
+	func isAtExpectedURL(_ expectedURL: String) -> Bool {
+		return urlsMatch(addressValue, expectedURL) || webAreaMatchesExpectedURL
+	}
 }
 
 func findAddressField(_ root: AXUIElement) -> AXUIElement? {
-    if let addressGroup = firstDescendant(root, matches: { element in
-        str(attr(element, "AXDOMClassList")).contains("group/address-bar")
-    }) {
-        return findTextField(addressGroup)
-    }
-
-    return firstDescendant(root) { element in
-        let role = str(attr(element, kAXRoleAttribute as String))
-        let classes = str(attr(element, "AXDOMClassList"))
-        let frame = rect(attr(element, "AXFrame"))
-        return role == "AXTextField"
-            && !classes.contains("ProseMirror")
-            && frame.origin.y >= 50
-            && frame.origin.y <= 160
-            && frame.width >= 150
-    }
+	var preferredAddressField: AXUIElement?
+	var fallbackAddressField: AXUIElement?
+	var webAreaMatchesExpectedURL = false
+	collectBrowserElements(
+		root,
+		expectedURL: "",
+		insideAddressGroup: false,
+		preferredAddressField: &preferredAddressField,
+		fallbackAddressField: &fallbackAddressField,
+		webAreaMatchesExpectedURL: &webAreaMatchesExpectedURL
+	)
+	return preferredAddressField ?? fallbackAddressField
 }
 
-func normalizedURLText(_ value: String) -> String {
-    var text = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if text.hasPrefix("http://") {
-        text.removeFirst("http://".count)
-    } else if text.hasPrefix("https://") {
-        text.removeFirst("https://".count)
-    }
-    while text.hasSuffix("/") {
-        text.removeLast()
-    }
-    return text
+func browserState(_ root: AXUIElement, expectedURL: String) -> BrowserState {
+	var preferredAddressField: AXUIElement?
+	var fallbackAddressField: AXUIElement?
+	var webAreaMatchesExpectedURL = false
+	collectBrowserElements(
+		root,
+		expectedURL: expectedURL,
+		insideAddressGroup: false,
+		preferredAddressField: &preferredAddressField,
+		fallbackAddressField: &fallbackAddressField,
+		webAreaMatchesExpectedURL: &webAreaMatchesExpectedURL
+	)
+
+	let addressField = preferredAddressField ?? fallbackAddressField
+	let addressValue = addressField.map { str(attr($0, kAXValueAttribute as String)) } ?? ""
+	return BrowserState(
+		addressField: addressField,
+		addressValue: addressValue,
+		webAreaMatchesExpectedURL: webAreaMatchesExpectedURL
+	)
 }
 
-func urlsMatch(_ observed: String, _ expected: String) -> Bool {
-    let observedURL = normalizedURLText(observed)
-    let expectedURL = normalizedURLText(expected)
-    if observedURL.isEmpty || expectedURL.isEmpty { return false }
-    return observedURL == expectedURL || observedURL.hasPrefix(expectedURL + "/")
+func collectBrowserElements(
+	_ element: AXUIElement,
+	expectedURL: String,
+	insideAddressGroup: Bool,
+	depth: Int = 0,
+	preferredAddressField: inout AXUIElement?,
+	fallbackAddressField: inout AXUIElement?,
+	webAreaMatchesExpectedURL: inout Bool
+) {
+	if depth > 80 { return }
+	if preferredAddressField != nil && (expectedURL.isEmpty || webAreaMatchesExpectedURL) { return }
+
+	let role = str(attr(element, kAXRoleAttribute as String))
+	var isInsideAddressGroup = insideAddressGroup
+	var classes = ""
+
+	if preferredAddressField == nil || role == "AXTextField" {
+		classes = str(attr(element, "AXDOMClassList"))
+		isInsideAddressGroup = insideAddressGroup || classes.contains("group/address-bar")
+	}
+
+	if role == "AXTextField" {
+		if isInsideAddressGroup {
+			preferredAddressField = element
+		} else if fallbackAddressField == nil {
+			if classes.isEmpty {
+				classes = str(attr(element, "AXDOMClassList"))
+			}
+			let frame = rect(attr(element, "AXFrame"))
+			if !classes.contains("ProseMirror")
+				&& frame.origin.y >= 50
+				&& frame.origin.y <= 160
+				&& frame.width >= 150
+			{
+				fallbackAddressField = element
+			}
+		}
+	} else if !expectedURL.isEmpty && !webAreaMatchesExpectedURL && role == "AXWebArea" {
+		webAreaMatchesExpectedURL = urlsMatch(str(attr(element, "AXURL")), expectedURL)
+	}
+
+	if preferredAddressField != nil && (expectedURL.isEmpty || webAreaMatchesExpectedURL) { return }
+	for child in children(element) {
+		collectBrowserElements(
+			child,
+			expectedURL: expectedURL,
+			insideAddressGroup: isInsideAddressGroup,
+			depth: depth + 1,
+			preferredAddressField: &preferredAddressField,
+			fallbackAddressField: &fallbackAddressField,
+			webAreaMatchesExpectedURL: &webAreaMatchesExpectedURL
+		)
+		if preferredAddressField != nil && (expectedURL.isEmpty || webAreaMatchesExpectedURL) { return }
+	}
+}
+
+func isLikelyAddressField(_ element: AXUIElement) -> Bool {
+	let role = str(attr(element, kAXRoleAttribute as String))
+	if role != "AXTextField" { return false }
+
+	let classes = str(attr(element, "AXDOMClassList"))
+	if classes.contains("ProseMirror") { return false }
+
+	let frame = rect(attr(element, "AXFrame"))
+	return frame.origin.y >= 50
+		&& frame.origin.y <= 160
+		&& frame.width >= 150
+}
+
+func addressFieldValue(_ element: AXUIElement?) -> String {
+	guard let element else { return "" }
+	return str(attr(element, kAXValueAttribute as String))
+}
+
+func addressFieldStillValid(_ element: AXUIElement?) -> Bool {
+	guard let element else { return false }
+	return isLikelyAddressField(element)
 }
 
 func pageURLMatches(_ root: AXUIElement, expectedURL: String) -> Bool {
-    return firstDescendant(root) { element in
-        let role = str(attr(element, kAXRoleAttribute as String))
-        let url = str(attr(element, "AXURL"))
-        return role == "AXWebArea" && urlsMatch(url, expectedURL)
-    } != nil
+	return firstDescendant(root) { element in
+		let role = str(attr(element, kAXRoleAttribute as String))
+		let url = str(attr(element, "AXURL"))
+		return role == "AXWebArea" && urlsMatch(url, expectedURL)
+	} != nil
 }
 
 func currentAddressValue(_ root: AXUIElement) -> String {
-    guard let field = findAddressField(root) else { return "" }
-    return str(attr(field, kAXValueAttribute as String))
+	guard let field = findAddressField(root) else { return "" }
+	return addressFieldValue(field)
 }
 
 func browserIsAtExpectedURL(_ root: AXUIElement, expectedURL: String) -> Bool {
-    if urlsMatch(currentAddressValue(root), expectedURL) {
-        return true
-    }
-    return pageURLMatches(root, expectedURL: expectedURL)
+	let state = browserState(root, expectedURL: expectedURL)
+	return state.isAtExpectedURL(expectedURL)
+}
+
+func browserIsAtExpectedURL(
+	_ root: AXUIElement,
+	expectedURL: String,
+	addressField: AXUIElement?
+) -> Bool {
+	let addressValue = addressFieldValue(addressField)
+	if urlsMatch(addressValue, expectedURL) {
+		return true
+	}
+	if addressFieldStillValid(addressField) {
+		return false
+	}
+	return pageURLMatches(root, expectedURL: expectedURL)
+}
+
+func normalizedURLText(_ value: String) -> String {
+	var text = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+	if text.hasPrefix("http://") {
+		text.removeFirst("http://".count)
+	} else if text.hasPrefix("https://") {
+		text.removeFirst("https://".count)
+	}
+	while text.hasSuffix("/") {
+		text.removeLast()
+	}
+	return text
+}
+
+func urlsMatch(_ observed: String, _ expected: String) -> Bool {
+	let observedURL = normalizedURLText(observed)
+	let expectedURL = normalizedURLText(expected)
+	if observedURL.isEmpty || expectedURL.isEmpty { return false }
+	return observedURL == expectedURL || observedURL.hasPrefix(expectedURL + "/")
 }
 
 func normalizedComposerText(_ value: String) -> String {
-    let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    return text.hasPrefix("Ask for") ? "" : text
+	let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+	return text.hasPrefix("Ask for") ? "" : text
 }
 
 func walkComposers(
@@ -234,24 +354,27 @@ func runOpenBrowser() -> Int32 {
         return 4
     }
 
-    if browserIsAtExpectedURL(root, expectedURL: expectedURL) {
+    let initialState = browserState(root, expectedURL: expectedURL)
+    var addressField = initialState.addressField
+    if initialState.isAtExpectedURL(expectedURL) {
         emit([
             "ok": true,
             "url": expectedURL,
             "alreadyOpen": true,
-            "addressValue": currentAddressValue(root),
+            "addressValue": initialState.addressValue,
         ])
         return 0
     }
 
-    if findAddressField(root) == nil {
+    if addressField == nil {
         let openResult = pressMenuItem(root, title: "Open Browser Tab")
         if openResult != .success {
             emit(["ok": false, "error": "Could not open Browser tab", "axError": openResult.rawValue])
             return 5
         }
         let opened = waitUntil(3.0) {
-            findAddressField(root) != nil
+            addressField = findAddressField(root)
+            return addressField != nil
         }
         if !opened {
             emit(["ok": false, "error": "Browser address field did not appear after opening Browser tab"])
@@ -266,7 +389,9 @@ func runOpenBrowser() -> Int32 {
     }
     usleep(200_000)
 
-    guard let addressField = findAddressField(root) else {
+    addressField = findAddressField(root)
+
+    guard let addressField else {
         emit(["ok": false, "error": "Browser address field not found"])
         return 8
     }
@@ -287,7 +412,7 @@ func runOpenBrowser() -> Int32 {
         return 9
     }
 
-    let beforeValue = str(attr(addressField, kAXValueAttribute as String))
+    let beforeValue = addressFieldValue(addressField)
     if urlsMatch(beforeValue, expectedURL) {
         emit([
             "ok": true,
@@ -301,7 +426,7 @@ func runOpenBrowser() -> Int32 {
 
     let setResult = AXUIElementSetAttributeValue(addressField, kAXValueAttribute as CFString, expectedURL as CFTypeRef)
     usleep(120_000)
-    let afterValue = str(attr(addressField, kAXValueAttribute as String))
+    let afterValue = addressFieldValue(addressField)
     if setResult != .success || !urlsMatch(afterValue, expectedURL) {
         emit([
             "ok": false,
@@ -316,9 +441,9 @@ func runOpenBrowser() -> Int32 {
 
     pressReturn()
     let loaded = waitUntil(3.0) {
-        browserIsAtExpectedURL(root, expectedURL: expectedURL)
+        browserIsAtExpectedURL(root, expectedURL: expectedURL, addressField: addressField)
     }
-    let finalValue = currentAddressValue(root)
+    let finalValue = addressFieldValue(addressField)
 
     emit([
         "ok": loaded,

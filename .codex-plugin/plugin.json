@@ -1,7 +1,7 @@
 {
   "name": "codex-ux",
-  "version": "0.1.2",
-  "description": "Codex UX surfaces and hooks for reviewing local workspace files with AgentUX notes.",
+  "version": "0.1.3",
+  "description": "Codex UX surfaces for reviewing local workspace files with AgentUX notes.",
   "author": {
     "name": "AnyCap AI",
     "url": "https://github.com/anycap-ai"
@@ -13,8 +13,7 @@
     "codex",
     "agentux",
     "file-browser",
-    "review",
-    "hooks"
+    "review"
   ],
   "skills": "./skills/",
   "interface": {
