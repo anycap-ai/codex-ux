@@ -1,6 +1,6 @@
 {
   "name": "codex-ux",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Codex UX surfaces and hooks for reviewing local workspace files with AgentUX notes.",
   "author": {
     "name": "AnyCap AI",

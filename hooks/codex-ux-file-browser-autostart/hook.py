@@ -503,7 +503,9 @@ def process_env_value(pid: str, name: str) -> str:
 def open_in_app_browser(launcher: Path, url: str, thread_id: str) -> dict[str, Any]:
     if platform.system() != "Darwin":
         return {"ok": False, "error": "in-app browser automation is only implemented for macOS"}
-    if not shutil.which("swift"):
+    env = os.environ.copy()
+    runtime = find_swift_runtime(launcher, env)
+    if runtime is None:
         return {"ok": False, "error": "swift is not available"}
 
     script = launcher.parent / "file_browser_server/codex_app_ax.swift"
@@ -511,9 +513,10 @@ def open_in_app_browser(launcher: Path, url: str, thread_id: str) -> dict[str, A
         return {"ok": False, "error": f"Missing Codex AX automation script: {script}"}
 
     result = subprocess.run(
-        ["swift", str(script), "open-browser", url, thread_id],
+        [runtime.command, str(script), "open-browser", url, thread_id],
         capture_output=True,
         text=True,
+        env=runtime.env,
         timeout=12,
         check=False,
     )
@@ -527,6 +530,18 @@ def open_in_app_browser(launcher: Path, url: str, thread_id: str) -> dict[str, A
     if isinstance(payload, dict):
         return payload
     return {"ok": True}
+
+
+def find_swift_runtime(launcher: Path, base_env: dict[str, str]):
+    scripts_dir = str(launcher.parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    try:
+        from file_browser_server.swift_runtime import find_swift_runtime as resolve_swift_runtime
+    except Exception as exc:
+        log(f"could not import Swift runtime resolver: {type(exc).__name__}: {exc}")
+        return None
+    return resolve_swift_runtime(base_env)
 
 
 def log(message: str) -> None:

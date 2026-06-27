@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import threading
 from pathlib import Path
 from typing import Any
+
+from .swift_runtime import find_swift_runtime
 
 
 CODEX_APP_AX_SCRIPT = Path(__file__).with_name("codex_app_ax.swift")
@@ -25,21 +26,22 @@ def trigger_codex_automation(prompt: str) -> dict[str, Any]:
 
 def run_codex_automation(prompt: str) -> dict[str, Any]:
     thread_id = os.environ.get("CODEX_THREAD_ID", "").strip()
-    if not shutil.which("swift"):
-        return {"ok": False, "error": "swift is not available"}
     if not CODEX_APP_AX_SCRIPT.is_file():
         return {"ok": False, "error": f"Missing Codex automation script: {CODEX_APP_AX_SCRIPT}"}
 
     env = os.environ.copy()
     env["CODEX_AUTOMATION_PROMPT"] = prompt
     env["CODEX_AUTOMATION_THREAD_ID"] = thread_id
+    runtime = find_swift_runtime(env)
+    if runtime is None:
+        return {"ok": False, "error": "swift is not available"}
 
     try:
         result = subprocess.run(
-            ["swift", str(CODEX_APP_AX_SCRIPT), "send-prompt"],
+            [runtime.command, str(CODEX_APP_AX_SCRIPT), "send-prompt"],
             capture_output=True,
             text=True,
-            env=env,
+            env=runtime.env,
             timeout=12,
             check=False,
         )
