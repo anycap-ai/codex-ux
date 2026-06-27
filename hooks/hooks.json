@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh -c '\nemit_continue() {\n  printf \"%s\\n\" \"{\\\"continue\\\":true,\\\"suppressOutput\\\":true}\"\n}\n\nfind_python() {\n  for candidate in \"${CODEX_UX_PYTHON:-}\" \\\n    \"$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3\" \\\n    /opt/homebrew/bin/python3 \\\n    /usr/local/bin/python3 \\\n    /usr/bin/python3 \\\n    python3\n  do\n    [ -n \"$candidate\" ] || continue\n    if command -v \"$candidate\" >/dev/null 2>&1 && \"$candidate\" -c \"import sys\" >/dev/null 2>&1; then\n      printf \"%s\\n\" \"$candidate\"\n      return 0\n    fi\n  done\n  return 1\n}\n\nfind_upward_hook() {\n  dir=$PWD\n  while [ \"$dir\" != \"/\" ]; do\n    for candidate in \\\n      \"$dir/.codex/codex-ux-file-browser-autostart/hook.py\" \\\n      \"$dir/plugins/codex-ux/hooks/codex-ux-file-browser-autostart/hook.py\"\n    do\n      if [ -f \"$candidate\" ]; then\n        printf \"%s\\n\" \"$candidate\"\n        return 0\n      fi\n    done\n    dir=$(dirname \"$dir\")\n  done\n  return 1\n}\n\nfind_installed_hook() {\n  for base in \"$HOME/.codex/plugins/codex-ux\" \"$HOME/.codex/plugins/cache\"; do\n    [ -d \"$base\" ] || continue\n    found=$(find \"$base\" -path \"*/hooks/codex-ux-file-browser-autostart/hook.py\" -print 2>/dev/null | head -n 1)\n    if [ -n \"$found\" ]; then\n      printf \"%s\\n\" \"$found\"\n      return 0\n    fi\n  done\n  return 1\n}\n\npython_bin=$(find_python) || { emit_continue; exit 0; }\nhook_path=$(find_upward_hook || find_installed_hook) || { emit_continue; exit 0; }\nexec \"$python_bin\" \"$hook_path\"\n'",
+            "timeout": 30,
+            "statusMessage": "Checking Codex UX File Browser trigger"
+          }
+        ]
+      }
+    ]
+  }
+}

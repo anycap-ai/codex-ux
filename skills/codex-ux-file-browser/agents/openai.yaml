@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex UX File Browser"
+  short_description: "Review local files with AgentUX notes"
+  default_prompt: "Use $codex-ux-file-browser to launch a local file browser, collect structured notes, and respond to them according to each note's intent."
