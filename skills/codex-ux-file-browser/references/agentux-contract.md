@@ -228,9 +228,58 @@ to use `text-range`.
 }
 ```
 
-`html-rect` anchors use the same document coordinate space with `x`, `y`,
-`width`, and `height`. Agents should treat DOM paths and coordinates as fast
-hints and validate against the current file before editing.
+`html-rect` anchors store the marked rectangle in document CSS pixels and also
+store the target DOM element used to reproject the mark after responsive
+layout changes. `targetPath` is a child-node path from `document.body` to the
+target element, and `targetRect` is that element's document rectangle when the
+mark was created. Viewers should reproject the mark by preserving its original
+edge offsets from `targetRect`, not by scaling the rectangle proportionally with
+the target element.
+
+```json
+{
+  "anchor": {
+    "type": "html-rect",
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "x": 720,
+    "y": 220,
+    "width": 360,
+    "height": 140,
+    "targetPath": [1, 3],
+    "targetRect": { "x": 680, "y": 180, "width": 440, "height": 220 }
+  }
+}
+```
+
+Agents should treat DOM paths and coordinates as fast hints and validate
+against the current file before editing.
+
+## PDF Intent
+
+PDF intents use page coordinates measured at the page's native PDF viewport
+scale. `pdf-rect` anchors can represent either an area mark or a text
+selection. Text selections include `selectedText`, nearby context, and optional
+per-line `rects` in the same coordinate space.
+
+```json
+{
+  "anchor": {
+    "type": "pdf-rect",
+    "pageNumber": 2,
+    "pageWidth": 612,
+    "pageHeight": 792,
+    "x": 90,
+    "y": 120,
+    "width": 260,
+    "height": 36,
+    "rects": [{ "x": 90, "y": 120, "width": 260, "height": 16 }],
+    "selectedText": "The selected PDF text",
+    "contextBefore": "...",
+    "contextAfter": "..."
+  }
+}
+```
 
 ## Agent Rules
 

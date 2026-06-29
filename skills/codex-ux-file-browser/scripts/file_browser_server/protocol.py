@@ -292,7 +292,9 @@ def sanitize_html_rect_anchor(raw: dict[str, Any]) -> dict[str, Any] | None:
     y = finite_number(raw.get("y"))
     width = positive_number(raw.get("width"))
     height = positive_number(raw.get("height"))
-    if None in (document_width, document_height, x, y, width, height):
+    target_path = int_list(raw.get("targetPath"))
+    target_rect = rect_value(raw.get("targetRect"))
+    if None in (document_width, document_height, x, y, width, height, target_path, target_rect):
         return None
     return {
         "type": "html-rect",
@@ -302,6 +304,8 @@ def sanitize_html_rect_anchor(raw: dict[str, Any]) -> dict[str, Any] | None:
         "y": y,
         "width": width,
         "height": height,
+        "targetPath": target_path,
+        "targetRect": target_rect,
     }
 
 
@@ -343,7 +347,7 @@ def sanitize_pdf_rect_anchor(raw: dict[str, Any]) -> dict[str, Any] | None:
     height = positive_number(raw.get("height"))
     if None in (page_number, page_width, page_height, x, y, width, height):
         return None
-    return {
+    anchor = {
         "type": "pdf-rect",
         "pageNumber": page_number,
         "pageWidth": page_width,
@@ -353,6 +357,15 @@ def sanitize_pdf_rect_anchor(raw: dict[str, Any]) -> dict[str, Any] | None:
         "width": width,
         "height": height,
     }
+    rects = rect_list(raw.get("rects"))
+    selected_text = non_empty_string(raw.get("selectedText"))
+    if rects:
+        anchor["rects"] = rects
+    if selected_text:
+        anchor["selectedText"] = selected_text
+        anchor["contextBefore"] = string_value(raw.get("contextBefore"))
+        anchor["contextAfter"] = string_value(raw.get("contextAfter"))
+    return anchor
 
 
 def positive_int(value: Any) -> int | None:
@@ -452,13 +465,20 @@ def rect_list(value: Any) -> list[dict[str, float]]:
         return []
     rects = []
     for raw_rect in value:
-        if not isinstance(raw_rect, dict):
+        rect = rect_value(raw_rect)
+        if rect is None:
             return []
-        x = finite_number(raw_rect.get("x"))
-        y = finite_number(raw_rect.get("y"))
-        width = positive_number(raw_rect.get("width"))
-        height = positive_number(raw_rect.get("height"))
-        if None in (x, y, width, height):
-            return []
-        rects.append({"x": x, "y": y, "width": width, "height": height})
+        rects.append(rect)
     return rects
+
+
+def rect_value(value: Any) -> dict[str, float] | None:
+    if not isinstance(value, dict):
+        return None
+    x = finite_number(value.get("x"))
+    y = finite_number(value.get("y"))
+    width = positive_number(value.get("width"))
+    height = positive_number(value.get("height"))
+    if None in (x, y, width, height):
+        return None
+    return {"x": x, "y": y, "width": width, "height": height}

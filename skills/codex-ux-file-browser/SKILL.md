@@ -11,9 +11,34 @@ Use this skill to run a local file browser that lets the user browse workspace f
 
 Let `SKILL_DIR` mean the absolute directory containing the loaded `SKILL.md`; substitute that path directly and do not search installed plugin caches when the skill path is already available.
 
+### Choose Host Path First
+
+Before launching, choose the path that matches the current Codex host. Do this from the current execution context, not by probing Browser availability:
+
+- Codex CLI: use the shell startup script only. Do not import `scripts/open-in-app-browser.mjs`, call Node REPL, use the Browser plugin, or try to open the Codex in-app Browser.
+- Codex desktop app: use the Node REPL opener below to launch the local server and navigate the Codex in-app Browser.
+
+If the host is unclear, use the Codex CLI path. The launcher treats unknown hosts as `codex-cli`, starts the local server, and opens the URL in the user's default browser.
+
+Do not use the presence of Browser tools as permission to open the in-app Browser in CLI host mode. The CLI product flow must stay in the user's local browser.
+
+### Codex CLI
+
+When running in Codex CLI, run the bundled startup script from this skill directory. This is the only startup command for CLI host mode. Do not paste Python resolver snippets into the terminal; the startup script owns Python discovery.
+
+```bash
+"$SKILL_DIR/scripts/start-file-browser.sh" "$PWD"
+```
+
+The startup script detects whether it was launched from Codex CLI or the Codex desktop app by inspecting its parent process tree. Do not pass host overrides or probe Browser availability before launch. The script prints one JSON object. Read `codexHost`, `url`, and `snapshotUrl` from that JSON. Read `snapshotUrl` when the user asks Codex to handle notes.
+
+When `codexHost` is `codex-cli`, the launcher opens `url` in the user's default browser automatically. If it does not open, give the user the printed `url`. Do not try to use the Codex in-app Browser in CLI host mode.
+
+When the user clicks `Copy` in the browser, the handoff prompt is copied to the clipboard; ask the user to paste it back into the current Codex CLI session. Read the pasted handoff's `snapshotUrl` exactly as provided before handling notes.
+
 ### Codex App
 
-When running in the Codex desktop app, start the Python launcher and open the page from one Node REPL call. Use tool discovery only to expose the Node REPL `js` tool when it is not already callable. Do not run the shell launcher first, call `browser.documentation()`, read visibility capability documentation, take a DOM snapshot, take a screenshot, or inspect page contents on the happy path.
+When running in the Codex desktop app, start the Python launcher and open the page from one Node REPL call. This `.mjs` helper is desktop-app-only; do not use it from Codex CLI as a generic launcher. Use tool discovery only to expose the Node REPL `js` tool when it is not already callable. Do not run the shell launcher first, call `browser.documentation()`, read visibility capability documentation, take a DOM snapshot, take a screenshot, or inspect page contents on the happy path.
 
 ```js
 const { launchAndOpenFileBrowser } = await import("SKILL_DIR/scripts/open-in-app-browser.mjs");
@@ -24,21 +49,7 @@ nodeRepl.write(JSON.stringify(await launchAndOpenFileBrowser({
 
 The bundled opener script runs `scripts/start-file-browser.sh`, parses the launcher JSON, resolves the app-browser client module from the local Codex plugin cache, makes the Browser visible, reuses the selected tab when present, otherwise creates a new tab, then navigates to the launcher's exact `url`. It does not reload when the selected tab is already at `url`, because that can discard in-progress notes or selection state.
 
-If the script returns `opened: true`, startup is complete. If it returns `opened: false`, read `startup.codexHost` and use `startup.url` according to the host-specific rules below. If the script throws before returning startup JSON, report the blocker.
-
-### Codex CLI
-
-When running in Codex CLI, run the bundled startup script from this skill directory. Do not paste Python resolver snippets into the terminal; the startup script owns Python discovery.
-
-```bash
-"$SKILL_DIR/scripts/start-file-browser.sh" "$PWD"
-```
-
-The startup script detects whether it was launched from Codex CLI or the Codex desktop app by inspecting its parent process tree. Do not pass host overrides or probe Browser availability before launch. The script prints one JSON object. Read `codexHost` first, then choose the browser path below. Read `snapshotUrl` when the user asks Codex to handle notes.
-
-When `codexHost` is `codex-cli`, the launcher opens `url` in the user's default browser automatically. If it does not open, give the user the printed `url`. Do not try to use the Codex in-app Browser in CLI host mode.
-
-When the user clicks `Copy` in the browser, the handoff prompt is copied to the clipboard; ask the user to paste it back into the current Codex CLI session. Read the pasted handoff's `snapshotUrl` exactly as provided before handling notes.
+If the script returns `opened: true`, startup is complete. If it returns `opened: false`, read `startup.codexHost` and use `startup.url` according to the host-specific rules above; never fall back to the in-app Browser when `startup.codexHost` is `codex-cli`. If the script throws before returning startup JSON, report the blocker.
 
 The startup script resolves Python, runs `scripts/launch.py` with `--reuse --detach --json`, and exits after printing startup details. `--reuse` checks the current workspace registry under `~/.codex-ux/file-browser/workspaces/`, matches `workspaceRoot` and `codexHost`, verifies `url + /api/meta`, and reuses the existing browser when it is healthy. `--detach` starts a background server only when no healthy server exists for that workspace and host. Do not trust registry files without the launcher's health check, because they can be stale after a previous process exits.
 
@@ -67,7 +78,7 @@ Use a fixed port only when the user explicitly asks for one:
 
 ## Browser Workflow
 
-1. Open the printed `URL` according to `codexHost`: in `codex-app`, use the Codex in-app Browser; in `codex-cli`, rely on the launcher-opened default browser or give the user the printed URL.
+1. Open the printed `URL` according to `codexHost`: in `codex-app`, use the Codex in-app Browser; in `codex-cli`, rely on the launcher-opened default browser or give the user the printed URL. Never use the Codex in-app Browser for a `codex-cli` startup.
 2. Let the user add notes:
    - Text/code/Markdown: select a range and write a note in the floating composer.
    - Images: choose Area, Pin, or Draw, mark the image, then write a note.
