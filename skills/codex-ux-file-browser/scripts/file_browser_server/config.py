@@ -23,7 +23,7 @@ class Limits:
     max_text_bytes: int = 2 * 1024 * 1024
     max_image_bytes: int = 20 * 1024 * 1024
     max_pdf_bytes: int = 30 * 1024 * 1024
-    max_request_bytes: int = 2 * 1024 * 1024
+    max_request_bytes: int = 6 * 1024 * 1024
     max_intents: int = 1000
     max_intent_body_chars: int = 10000
     max_search_seconds: float = 6.0

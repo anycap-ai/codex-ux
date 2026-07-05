@@ -11,6 +11,9 @@ Read this together with [AgentUX Core](agentux-core.md).
 The File Browser exposes:
 
 - `GET /api/meta`
+- `GET /api/file?path=<workspace-path>`
+- `GET /api/file/status?path=<workspace-path>`
+- `PUT /api/file`
 - `GET /snapshot.json`
 - `GET /snapshot.json?intents=open`
 - `GET /api/session`
@@ -29,6 +32,25 @@ The browser also exposes:
 
 The app currently does not implement `agentux.view.v1`, events, or agent layer.
 Those capabilities are declared as disabled in the snapshot surface object.
+Direct text editing is a local user action exposed through app-specific file
+APIs. It is not an AgentUX host action.
+
+`PUT /api/file` accepts:
+
+```json
+{
+  "path": "docs/spec.md",
+  "content": "# Updated\n",
+  "baseContentHash": "sha256:...",
+  "baseMtimeMs": 1780000000000
+}
+```
+
+The server saves only supported UTF-8 text files inside the workspace. It
+rejects ignored, secret, unsupported, oversized, missing, or path-escaping
+targets. If the current file hash differs from `baseContentHash`, the endpoint
+returns `409 Conflict` with the current file metadata and does not overwrite the
+file.
 
 ## Host Context
 

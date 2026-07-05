@@ -14,10 +14,10 @@ from .codex_automation import trigger_codex_automation
 from .config import DIST_DIR, LIMITS
 from .handoff import build_handoff_payload, write_handoff_files
 from .protocol import APP_NAME, SCHEMA_SNAPSHOT, build_surface
-from .scan import language_for, should_skip_file
+from .scan import should_skip_file
 from .search import search_workspace
 from .state import ReviewState
-from .utils import clamp_int, first, hash_bytes, image_mime, is_relative_to, mime_for, require_path
+from .utils import clamp_int, first, image_mime, is_relative_to, mime_for, require_path
 
 
 class ReviewHandler(SimpleHTTPRequestHandler):
@@ -62,6 +62,10 @@ class ReviewHandler(SimpleHTTPRequestHandler):
                 self.serve_file(query)
                 return
 
+            if route == "/api/file/status":
+                self.serve_file_status(query)
+                return
+
             if route == "/api/image":
                 self.serve_image(query)
                 return
@@ -88,20 +92,27 @@ class ReviewHandler(SimpleHTTPRequestHandler):
 
             self.serve_static(route)
         except Exception as error:
-            self.send_json({"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            self.send_exception_json(error)
 
     def do_PUT(self) -> None:
         try:
             parsed = urlparse(self.path)
-            if parsed.path != "/api/session":
-                self.send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+            if parsed.path == "/api/session":
+                body = self.read_json_body()
+                self.state.session = self.state.sanitize_session(body)
+                self.state.save_session()
+                self.send_json(self.state.session)
                 return
-            body = self.read_json_body()
-            self.state.session = self.state.sanitize_session(body)
-            self.state.save_session()
-            self.send_json(self.state.session)
+
+            if parsed.path == "/api/file":
+                result = self.state.save_text_file(self.read_json_body())
+                status = HTTPStatus.CONFLICT if result.get("conflict") else HTTPStatus.OK
+                self.send_json(result, status)
+                return
+
+            self.send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
         except Exception as error:
-            self.send_json({"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            self.send_exception_json(error)
 
     def do_POST(self) -> None:
         try:
@@ -130,30 +141,23 @@ class ReviewHandler(SimpleHTTPRequestHandler):
             }
             self.send_json(response)
         except Exception as error:
-            self.send_json({"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            self.send_exception_json(error)
 
     def serve_file(self, query: dict[str, list[str]]) -> None:
         relative_path = require_path(query)
         absolute_path = self.state.safe_resolve(relative_path)
-        stat_result = absolute_path.stat()
-        if stat_result.st_size > LIMITS.max_text_bytes:
-            self.send_json({"error": "File is too large for text review"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
-            return
+        file_info = self.state.text_file_metadata(relative_path, absolute_path, include_hash=True)
         content = absolute_path.read_text("utf-8")
         self.send_json(
             {
-                "file": {
-                    "relativePath": relative_path,
-                    "absolutePath": str(absolute_path),
-                    "kind": "text",
-                    "language": language_for(relative_path),
-                    "size": stat_result.st_size,
-                    "mtimeMs": stat_result.st_mtime * 1000,
-                    "contentHash": hash_bytes(content.encode("utf-8")),
-                },
+                "file": file_info,
                 "content": content,
             }
         )
+
+    def serve_file_status(self, query: dict[str, list[str]]) -> None:
+        relative_path = require_path(query)
+        self.send_json({"file": self.state.text_file_status(relative_path)})
 
     def serve_image(self, query: dict[str, list[str]]) -> None:
         relative_path = require_path(query)
@@ -241,6 +245,21 @@ class ReviewHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def send_exception_json(self, error: Exception) -> None:
+        if isinstance(error, FileNotFoundError):
+            status = HTTPStatus.NOT_FOUND
+        elif isinstance(error, PermissionError):
+            status = HTTPStatus.FORBIDDEN
+        elif isinstance(error, UnicodeError):
+            status = HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+        elif isinstance(error, ValueError) and str(error).startswith("File is too large"):
+            status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+        elif isinstance(error, ValueError):
+            status = HTTPStatus.BAD_REQUEST
+        else:
+            status = HTTPStatus.INTERNAL_SERVER_ERROR
+        self.send_json({"error": str(error)}, status)
 
     def send_cors_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")

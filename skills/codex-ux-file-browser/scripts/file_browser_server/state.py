@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,9 @@ from .protocol import (
     workspace_key,
 )
 from .scan import classify_path, language_for, scan_dir
+from .text_files import save_text_file as save_text_file_payload
+from .text_files import text_file_metadata as build_text_file_metadata
+from .text_files import text_file_status as build_text_file_status
 from .utils import hash_file, is_relative_to, normalize_relative, utc_now
 
 
@@ -34,6 +38,7 @@ class ReviewState:
         self.session = self.load_session()
         self.files_cache: list[dict[str, Any]] | None = None
         self.files_cache_at = 0.0
+        self.file_lock = threading.Lock()
 
     def empty_session(self) -> dict[str, Any]:
         return build_empty_session(self.workspace_root)
@@ -95,6 +100,36 @@ class ReviewState:
         self.files_cache = files
         self.files_cache_at = now
         return files
+
+    def text_file_status(self, relative_path: str) -> dict[str, Any]:
+        return build_text_file_status(self.safe_resolve, relative_path)
+
+    def save_text_file(self, payload: Any) -> dict[str, Any]:
+        result = save_text_file_payload(self.safe_resolve, self.file_lock, payload)
+        if result.get("saved"):
+            self.replace_cached_file(result["file"])
+        return result
+
+    def text_file_metadata(self, relative_path: str, absolute_path: Path, include_hash: bool = False) -> dict[str, Any]:
+        return build_text_file_metadata(relative_path, absolute_path, include_hash)
+
+    def replace_cached_file(self, file_info: dict[str, Any]) -> None:
+        if self.files_cache is None:
+            return
+        clean_file_info = {key: value for key, value in file_info.items() if key != "contentHash"}
+        replaced = False
+        next_files = []
+        for file in self.files_cache:
+            if file.get("relativePath") == clean_file_info["relativePath"]:
+                next_files.append(clean_file_info)
+                replaced = True
+            else:
+                next_files.append(file)
+        if not replaced:
+            next_files.append(clean_file_info)
+            next_files.sort(key=lambda item: item["relativePath"])
+        self.files_cache = next_files
+        self.files_cache_at = time.time()
 
     def build_snapshot(self, open_only: bool = False) -> dict[str, Any]:
         intents = []
